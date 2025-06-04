@@ -25,15 +25,15 @@
 
   /* Re-usable “features” for git & common CLI tools */
   "features": {
-    "ghcr.io/devcontainers/features/git:1": {},
-    "ghcr.io/devcontainers/features/common-utils:2": {}
+    "ghcr.io/devcontainers/features/git:1": {}
   },
 
   /* Read-only bind-mount of your host SSH keys → seamless git access */
   "mounts": [
-    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+    // Works on Windows, macOS, Linux
+    "source=${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
   ],
 
   /* Ensure submodules (klipper, katapult, …) are ready on first start */
-  "postCreateCommand": "git submodule update --init --recursive"
+  "postCreateCommand": "git config --global core.autocrlf true && git config --global core.fileMode false && git submodule update --init --recursive"
 }
