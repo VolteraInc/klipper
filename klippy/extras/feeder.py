@@ -301,8 +301,8 @@ class Feeder:
 def load_config(config):
     printer = config.get_printer()
     # Register the AS5048B as an angle sensor if angle.py is loaded
-    angle_module = getattr(printer, "lookup_object", lambda x: None)("angle")
-    if angle_module is not None:
-        angle_module.add_sensor_factory("AS5048B", AS5048B)
+    # angle_module = getattr(printer, "lookup_object", lambda x: None)("angle")
+    # if angle_module is not None:
+    #     angle_module.add_sensor_factory("AS5048B", AS5048B)
     # Register the feeder object as usual
     return Feeder(config)
