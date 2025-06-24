@@ -32,7 +32,7 @@ class AS5048B:
         self.printer = config.get_printer()
         self.name = config.get_name().split()[-1]
         self.i2c = bus.MCU_I2C_from_config(
-            config, default_addr=AS5048B_I2C_ADDR, default_speed=400000)
+            config, default_addr=AS5048B_I2C_ADDR, default_speed=100000)
         self.address = AS5048B_I2C_ADDR
         self.last_angle_raw = 0
         self.clockwise = config.getboolean("clockwise", False)
