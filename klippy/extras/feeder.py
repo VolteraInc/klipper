@@ -159,8 +159,8 @@ class Feeder:
         self.target_velocity = 0.0  # mm/sec
         self._pid = {"Kp": 0.1, "Ki": 0.01, "Kd": 0.001}
         self._pid_state = {"integral": 0.0, "last_error": 0.0}
-        self._last_angle = self.sensor.get_angle_raw()
-        self._last_time = self.printer.get_reactor().monotonic()
+        self._last_angle = None  # Will be set after connect
+        self._last_time = None   # Will be set after connect
         self._pwm = 0.0
         self._pid_enabled = False
         self._pid_timer = self.printer.get_reactor().register_timer(self._pid_update)
@@ -175,12 +175,18 @@ class Feeder:
         self.gcode.register_command("FEEDER_STOP", self.cmd_FEEDER_STOP, desc="Stop feeder and disable PID")
         self.gcode.register_command("FEEDER_PID", self.cmd_FEEDER_PID, desc="Tweak PID gains")
 
+        # Register event handler for klippy:connect
+        self.printer.register_event_handler("klippy:connect", self.handle_connect)
+
+    def handle_connect(self):
+        # Initialize sensor-dependent state after I2C bus is ready
+        self._last_angle = self.sensor.get_angle_raw()
+        self._last_time = self.printer.get_reactor().monotonic()
 
     def _pid_update(self, eventtime):
         # Called periodically by reactor
-        if not self._pid_enabled:
-            self.pwm_pin.set_pwm(0)
-            return eventtime + 0.05  # check again in 50ms
+        if not self._pid_enabled or self._last_angle is None or self._last_time is None:
+            return eventtime + 0.5
 
         now = self.printer.get_reactor().monotonic()
         dt = now - self._last_time
@@ -221,6 +227,7 @@ class Feeder:
         self.target_velocity = vel
         self._pid_enabled = True
         self._pid_state = {"integral": 0.0, "last_error": 0.0}
+        # Only access sensor after klippy:connect
         self._last_angle = self.sensor.get_angle_raw()
         self._last_time = self.printer.get_reactor().monotonic()
         gcmd.respond_info(f"Target velocity set to {vel:.2f} mm/s, PID enabled.")
