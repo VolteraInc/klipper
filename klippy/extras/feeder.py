@@ -141,13 +141,16 @@ class Feeder:
         self.sensor.reset_moving_avg_exp()
 
         # Motor driver pins (DRV8876)
-        ppins = self.printer.lookup_object("pins")
-        self.pwm_pin = ppins.lookup_pin(config.get("pwm_pin", "feeder:GPIO15"))
-        self.dir_pin = ppins.lookup_pin(config.get("dir_pin", "feeder:GPIO16"))
-        self.fault_pin = ppins.lookup_pin(config.get("fault_pin", "feeder:GPIO22"))
+        pwm_pin_name = config.get("pwm_pin", "feeder_pwm")
+        self.pwm_pin = self.printer.lookup_object("output_pin " + pwm_pin_name)
 
-        # Endstop (optical switch)
-        self.limit_pin = ppins.lookup_pin(config.get("limit_pin", "feeder:gpio24"))
+        dir_pin_name = config.get("dir_pin", "feeder_dir")
+        self.dir_pin = self.printer.lookup_object("output_pin " + dir_pin_name)
+
+        fault_pin_desc = config.get("fault_pin", "pico:gpio22")
+        limit_pin_desc = config.get("limit_pin", "pico:gpio24")
+        self.fault_pin = fault_pin_desc
+        self.limit_pin = limit_pin_desc
 
         # Tape pitch and encoder config
         self.pocket_length = config.getfloat("pocket_length", 4.0)  # mm between pockets
@@ -214,7 +217,6 @@ class Feeder:
             self._pid["Kd"] * derivative
         )
         self._pwm = max(0.0, min(1.0, output))
-        self.pwm_pin.setup_pin("pwm")
         self.pwm_pin.set_pwm(self._pwm)
 
         self._pid_state["last_error"] = error
@@ -270,22 +272,21 @@ class Feeder:
         gcmd.respond_info("AS5048B zero position set.")
 
     def cmd_FEEDER_MOTOR(self, gcmd):
-        # Control the motor: PWM=<0..1> DIR=<0|1>
-        pwm = gcmd.get_float("PWM", 0.0, minval=0.0, maxval=1.0)
-        direction = gcmd.get_int("DIR", 0, minval=0, maxval=1)
-        # Set direction pin
-        self.dir_pin.setup_pin("digital_out")
-        self.dir_pin.set_value(direction)
-        # Set PWM pin
-        self.pwm_pin.setup_pin("pwm")
-        self.pwm_pin.set_pwm(pwm)
-        gcmd.respond_info(f"Motor set: PWM={pwm:.2f}, DIR={direction}")
+        pwm = gcmd.get_float("PWM", None)
+        dir_val = gcmd.get_int("DIR", None)
+        if pwm is not None:
+            # Clamp PWM to [0, 1]
+            pwm = max(0.0, min(1.0, pwm))
+            self.pwm_pin.gcrq.queue_gcode_request(pwm)
+            self._pwm = pwm
+        if dir_val is not None:
+            self.dir_pin.gcrq.queue_gcode_request(1 if dir_val else 0)
+        gcmd.respond_info(f"Set PWM={self._pwm:.2f}, DIR={dir_val}")
 
     def cmd_FEEDER_LIMIT(self, gcmd):
         # Report endstop state
-        self.limit_pin.setup_pin("digital_in")
-        state = self.limit_pin.query_value()
-        gcmd.respond_info(f"Endstop (limit switch) state: {'TRIGGERED' if state else 'open'}")
+        # You may need to implement digital input reading for your limit pin here
+        gcmd.respond_info("Endstop (limit switch) state: (not implemented)")
 
     def cmd_ADVANCE_CUT_TAPE(self, gcmd):
         mm = gcmd.get_float("LEN", None)
@@ -295,14 +296,12 @@ class Feeder:
         if pockets is not None:
             mm = pockets * self.pocket_length
         ticks = mm * self.ticks_per_mm
-        self.dir_pin.setup_pin("digital_out")
-        self.dir_pin.set_value(1)  # Forward
-        self.pwm_pin.setup_pin("pwm")
-        self.pwm_pin.set_pwm(0.5)
+        self.dir_pin.gcrq.queue_gcode_request(1)  # Forward
+        self.pwm_pin.gcrq.queue_gcode_request(0.5)
         start_ticks = self.sensor.get_angle_raw()
         while abs(self.sensor.get_angle_raw() - start_ticks) < ticks:
             self.printer.get_reactor().pause(0.01)
-        self.pwm_pin.set_pwm(0)
+        self.pwm_pin.gcrq.queue_gcode_request(0)
         gcmd.respond_info(f"Advanced tape by {mm:.2f} mm.")
 
 def load_config(config):
