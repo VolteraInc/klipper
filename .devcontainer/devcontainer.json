@@ -1,0 +1,39 @@
+{
+  "name": "Klipper-Dev-Stack",
+
+  /* Build the dev-env from Dockerfile we'll add next */
+  "dockerFile": "Dockerfile",
+  "context": ".",
+
+  /* Run VS Code as this unprivileged user inside the container */
+  "remoteUser": "vscode",
+
+  /* Extensions that auto-install inside the container (run on your laptop) */
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools",
+        "ms-vscode.makefile-tools",
+        "ms-python.python",
+        "github.copilot",
+        "github.copilot-chat",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+
+  /* Re-usable “features” for git & common CLI tools */
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+
+  /* Read-only bind-mount of your host SSH keys → seamless git access */
+  "mounts": [
+    // Works on Windows, macOS, Linux
+    "source=${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+  ],
+
+  /* Ensure submodules (klipper, katapult, …) are ready on first start */
+  "postCreateCommand": "git config --global core.autocrlf true && git config --global core.fileMode false && git submodule update --init --recursive"
+}

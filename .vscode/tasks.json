@@ -1,0 +1,36 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "MCU menuconfig",
+      "type": "shell",
+      "command": "make menuconfig",
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Build MCU firmware",
+      "type": "shell",
+      "command": "make clean && make -j$(nproc)",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Deploy host Python",
+      "type": "shell",
+      "command": "ssh klipper '~/deploy_host_python.sh'",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flash to Manta (Katapult)",
+      "type": "shell",
+      "dependsOn": ["Build MCU firmware", "Deploy host Python"],
+      "command": "bash",
+      "args": [
+        "-c",
+        "scp out/klipper.bin klipper:/tmp && ssh klipper 'python3 ~/katapult/scripts/flashtool.py -i can0 -r -u 09ee31594ced && python3 ~/katapult/scripts/flashtool.py -f /tmp/klipper.bin -d /dev/serial/by-id/usb-katapult_stm32g0b1xx_3200130008504E5238363120-if00'"
+      ],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    }
+  ]
+}
