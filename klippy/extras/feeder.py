@@ -147,10 +147,20 @@ class Feeder:
         dir_pin_name = config.get("dir_pin", "feeder_dir")
         self.dir_pin = self.printer.lookup_object("output_pin " + dir_pin_name)
 
-        fault_pin_desc = config.get("fault_pin", "pico:gpio22")
-        limit_pin_desc = config.get("limit_pin", "pico:gpio24")
-        self.fault_pin = fault_pin_desc
-        self.limit_pin = limit_pin_desc
+        # Digital input pins (limit and fault) as endstop pins using ^ for pullup
+        ppins = self.printer.lookup_object("pins")
+        limit_pin_desc = config.get("limit_pin", "^pico:gpio24")
+        try:
+            self.limit_pin = ppins.setup_pin("endstop", limit_pin_desc)
+        except Exception as e:
+            raise config.error(f"Failed to setup limit_pin '{limit_pin_desc}': {e}")
+        fault_pin_desc = config.get("fault_pin", None)
+        self.fault_pin = None
+        if fault_pin_desc:
+            try:
+                self.fault_pin = ppins.setup_pin("endstop", fault_pin_desc)
+            except Exception as e:
+                self.logger.warning(f"Failed to setup fault_pin '{fault_pin_desc}': {e}")
 
         # Tape pitch and encoder config
         self.pocket_length = config.getfloat("pocket_length", 4.0)  # mm between pockets
@@ -177,19 +187,38 @@ class Feeder:
         self.gcode.register_command("FEEDER_SET_VEL", self.cmd_FEEDER_SET_VEL, desc="Set target velocity (mm/s) and enable PID")
         self.gcode.register_command("FEEDER_STOP", self.cmd_FEEDER_STOP, desc="Stop feeder and disable PID")
         self.gcode.register_command("FEEDER_PID", self.cmd_FEEDER_PID, desc="Tweak PID gains")
+        self.gcode.register_command("FEEDER_FAULT", self.cmd_FEEDER_FAULT, desc="Report DRV8876 fault pin state")
 
         # Register event handler for klippy:connect
         self.printer.register_event_handler("klippy:connect", self.handle_connect)
 
     def handle_connect(self):
-        # Initialize sensor-dependent state after I2C bus is ready
-        self._last_angle = self.sensor.get_angle_raw()
-        self._last_time = self.printer.get_reactor().monotonic()
+        # Set initial state for PWM and DIR pins using the public PrinterOutputPin API
+        reactor = self.printer.get_reactor()
+        print_time = reactor.monotonic()
+        # Set PWM to 0 (off)
+        if hasattr(self.pwm_pin, 'set_pwm'):
+            self.pwm_pin.set_pwm(print_time, 0.0)
+        elif hasattr(self.pwm_pin, 'set_digital'):
+            self.pwm_pin.set_digital(print_time, 0)
+        # Set DIR to 0 (default direction)
+        if hasattr(self.dir_pin, 'set_digital'):
+            self.dir_pin.set_digital(print_time, 0)
 
     def _pid_update(self, eventtime):
         # Called periodically by reactor
         if not self._pid_enabled or self._last_angle is None or self._last_time is None:
             return eventtime + 0.5
+        if self.fault_pin is not None and self.is_fault_triggered():
+            self._pid_enabled = False
+            self.pwm_pin.set_pwm(0.0)
+            self.logger.warning("DRV8876 fault detected! Motor stopped for safety.")
+            return eventtime + 1.0
+        if self.is_limit_triggered():
+            self._pid_enabled = False
+            self.pwm_pin.set_pwm(0.0)
+            self.logger.info("Feeder endstop triggered. Motor stopped.")
+            return eventtime + 1.0
 
         now = self.printer.get_reactor().monotonic()
         dt = now - self._last_time
@@ -235,9 +264,11 @@ class Feeder:
         gcmd.respond_info(f"Target velocity set to {vel:.2f} mm/s, PID enabled.")
 
     def cmd_FEEDER_STOP(self, gcmd):
+        # Stop the feeder motor by setting PWM to 0
+        self.pwm_pin.gcrq.queue_gcode_request(0.0)
+        self._pwm = 0.0
         self._pid_enabled = False
-        self.pwm_pin.set_pwm(0)
-        gcmd.respond_info("Feeder stopped and PID disabled.")
+        gcmd.respond_info("Feeder stopped (PWM=0.0, PID disabled)")
 
     def cmd_FEEDER_PID(self, gcmd):
         for param in ["Kp", "Ki", "Kd"]:
@@ -264,6 +295,8 @@ class Feeder:
             "velocity": round(velocity, 3),
             "pwm": round(self._pwm, 3),
             "pid_enabled": self._pid_enabled,
+            "limit": self.is_limit_triggered(),
+            "fault": self.is_fault_triggered() if self.fault_pin else None,
         })
         gcmd.respond_info(str(status))
 
@@ -284,25 +317,73 @@ class Feeder:
         gcmd.respond_info(f"Set PWM={self._pwm:.2f}, DIR={dir_val}")
 
     def cmd_FEEDER_LIMIT(self, gcmd):
-        # Report endstop state
-        # You may need to implement digital input reading for your limit pin here
-        gcmd.respond_info("Endstop (limit switch) state: (not implemented)")
+        """Report the state of the limit (endstop) pin."""
+        state = self.is_limit_triggered()
+        gcmd.respond_info(f"Feeder limit (endstop) triggered: {state}")
+
+    def is_limit_triggered(self):
+        # Use .query_endstop() for digital input pin state
+        try:
+            return bool(self.limit_pin.query_endstop(self.printer.get_reactor().monotonic()))
+        except Exception as e:
+            self.logger.warning(f"Error reading limit pin: {e}")
+            return False
+
+    def is_fault_triggered(self):
+        if not self.fault_pin:
+            return False
+        try:
+            return bool(self.fault_pin.query_endstop(self.printer.get_reactor().monotonic()))
+        except Exception as e:
+            self.logger.warning(f"Error reading fault pin: {e}")
+            return False
+
+    def cmd_FEEDER_FAULT(self, gcmd):
+        if self.fault_pin is None:
+            gcmd.respond_info("Feeder fault pin not configured.")
+            return
+        state = self.is_fault_triggered()
+        gcmd.respond_info(f"Feeder fault pin triggered: {state}")
 
     def cmd_ADVANCE_CUT_TAPE(self, gcmd):
-        mm = gcmd.get_float("LEN", None)
+        # Advance tape by LEN=<mm> or POCKETS=<n>
         pockets = gcmd.get_int("POCKETS", None)
-        if mm is None and pockets is None:
-            raise gcmd.error("Specify LEN=<mm> or POCKETS=<n>.")
+        length = gcmd.get_float("LEN", None)
         if pockets is not None:
-            mm = pockets * self.pocket_length
-        ticks = mm * self.ticks_per_mm
-        self.dir_pin.gcrq.queue_gcode_request(1)  # Forward
-        self.pwm_pin.gcrq.queue_gcode_request(0.5)
-        start_ticks = self.sensor.get_angle_raw()
-        while abs(self.sensor.get_angle_raw() - start_ticks) < ticks:
-            self.printer.get_reactor().pause(0.01)
-        self.pwm_pin.gcrq.queue_gcode_request(0)
-        gcmd.respond_info(f"Advanced tape by {mm:.2f} mm.")
+            length = pockets * self.pocket_length
+        elif length is None:
+            length = self.pocket_length
+        # Move the tape by 'length' mm, or until endstop/fault triggered
+        start_angle = self.sensor.get_angle_raw()
+        target_ticks = start_angle + int(length * self.ticks_per_mm)
+        # Handle wrap-around
+        target_ticks = target_ticks % self.ticks_per_rev
+        # Set direction
+        self.dir_pin.gcrq.queue_gcode_request(1)  # Assume 1 is forward
+        # Start motor
+        self.pwm_pin.gcrq.queue_gcode_request(0.7)  # Use a fixed PWM for advance
+        reactor = self.printer.get_reactor()
+        timeout = reactor.monotonic() + 5.0  # 5s timeout for safety
+        while True:
+            now = reactor.monotonic()
+            angle = self.sensor.get_angle_raw()
+            # Check for wrap-around
+            delta = (angle - start_angle) % self.ticks_per_rev
+            if delta < 0:
+                delta += self.ticks_per_rev
+            self.logger.info(f"ADVANCE_LOOP: angle={angle}, start_angle={start_angle}, delta={delta}, target={(length * self.ticks_per_mm)}")
+            if delta >= (length * self.ticks_per_mm):
+                break
+            if self.is_limit_triggered() or (self.fault_pin and self.is_fault_triggered()):
+                self.logger.info("ADVANCE_LOOP: Endstop or fault triggered, breaking.")
+                break
+            if now > timeout:
+                self.logger.warning("Advance cut tape timed out!")
+                break
+            reactor.pause(now + 0.01)
+        # Stop motor
+        self.pwm_pin.gcrq.queue_gcode_request(0.0)
+        gcmd.respond_info(f"Advanced tape by {length:.2f} mm or until endstop/fault triggered.")
 
 def load_config(config):
     printer = config.get_printer()
