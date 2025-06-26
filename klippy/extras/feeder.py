@@ -1,6 +1,5 @@
 # Feeder module using AMS AS5048B I2C angle sensor
 #
-# Copyright (C) 2024  Your Name <your@email.com>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
