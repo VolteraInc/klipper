@@ -108,8 +108,8 @@ The XGZP6847D sensor supports various pressure ranges. The module is configured 
 # Take a pressure measurement
 DO_PT_MEASURE
 
-# Wait for measurement to complete (typically 50-100ms)
-G4 P100
+# Wait for measurement to complete (typically 5-20ms)
+G4 P20
 
 # Read the results
 TELL_PT_MEASURE
@@ -125,10 +125,9 @@ M106 P255
 
 # Monitor vacuum buildup
 DO_PT_MEASURE
-G4 P100
+G4 P20
 TELL_PT_MEASURE
 
-# Continue with dispensing operation when adequate vacuum is achieved
 ```
 
 ## Version History
@@ -142,4 +141,4 @@ TELL_PT_MEASURE
 
 ## Related Documentation
 
-- [cfg example](config/example-voltera-XGZP6847D_sensor.cfg)
+- [Configuration example](config/example-voltera-XGZP6847D_sensor.cfg)

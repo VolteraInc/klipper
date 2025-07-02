@@ -86,8 +86,6 @@ GET http://<printer-ip>:7125/printer/objects/query?suction_controller
   - `1.0`: Pump at maximum power
   - Values between 0.0-1.0 indicate proportional power levels
 
-## Hardware Setup
-
 
 ## Usage Examples
 
@@ -149,7 +147,7 @@ GET http://<printer-ip>:7125/printer/objects/query?suction_controller&XGZP6847D_
 
 
 ## Related Documentation
-- [cfg example](config/example-voltera-suction_controller.cfg)
+- [Config example](config/example-voltera-suction_controller.cfg)
 - [XGZP6847D Pressure Sensor](docs/voltera-XGZP6847D_sensor.md)
 - [Klipper Config Reference](Config_Reference.md)
 - [PWM Output Pins](Config_Reference.md#pwm_output_pin)
