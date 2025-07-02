@@ -5,3 +5,5 @@ out
 .config.old
 klippy/.version
 .vscode
+
+**/.stfolder
