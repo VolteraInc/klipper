@@ -16,7 +16,7 @@ CONFIG0_WRITE    = bytes([0b01000110]) # 01 Chip address, 0001 Config0Address, 1
 CONFIG0_DATA     = bytes([0b01100011])
 CONFIG0_READ     = bytes([0b01000111]) # 01 Chip address, 0001 Config0Address, 11 Read command
 CONFIG1_DATA     = bytes([0b00001100])  # Default
-CONFIG2_FORCE_DATA = bytes([0b10001011])  
+CONFIG2_FORCE_DATA = bytes([0b10110011])  # Gain now is x32
 CONFIG3_DATA     = bytes([0b11000000])
 IRQ_DATA         = bytes([0b00000110])
 FULL_RST         = bytes([0b01111000])
@@ -36,6 +36,7 @@ class Touch_sensor_MCP3462R:
         self.spi_oid = self.spi.get_oid()
         self.mcu = self.spi.get_mcu()
         self.oid = self.mcu.create_oid()
+        self.trigger_value = config.getfloat('trigger_value')
 
         # Printer and pin setup
         self.printer = config.get_printer()
@@ -91,6 +92,8 @@ class Touch_sensor_MCP3462R:
         """Handle printer ready event and initialize sensor if needed."""
         if not self.configured:
             self.configured = self._do_initialization_commands()
+        # TODO: update with a better way
+        self.gcode.run_script("SET_FAN_SPEED FAN=ts_led SPEED=1")
     
     def _handle_probing_event(self, gcmd):
         """Handle probing event and start touch sensor session."""
@@ -102,7 +105,7 @@ class Touch_sensor_MCP3462R:
         logging.info("Touch sensor SPI OID: %s", self.spi_oid)
         logging.info("Touch sensor configured: %s", self.configured)
         self.start_ts_session_cmd.send([
-            self.oid, 100000, 10000, 1000
+            self.oid, 80000, 500000, int(self.trigger_value)
         ])
 
     def _handle_ts_session_response(self, params):
