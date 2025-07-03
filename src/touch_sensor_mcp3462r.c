@@ -65,8 +65,8 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
 
         data = (mcp_adc_ptr->msg[1] << 8) | mcp_adc_ptr->msg[2];
         // Process the raw values
-        output("Got new raw ADC data: %u at cycle= %u",
-                data, mcp_adc_ptr->timeout_cycles);
+        // output("Got new raw ADC data: %u at cycle= %u sensitivity is %u",
+        //         data, mcp_adc_ptr->timeout_cycles, mcp_adc_ptr->sensitivity);
         if (data < mcp_adc_ptr->sensitivity) {
             // Touch detected
             gpio_out_write(mcp_adc_ptr->trigger_out_pin, 1);
@@ -90,6 +90,7 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
 
         if (doneP) {
             // Schedule terminator event to reset probe state
+            mcp_adc_ptr->timer.waketime +=  5 * mcp_adc_ptr->rest_ticks;
             mcp_adc_ptr->timer.func = mcp3462r_terminator_event;
             return SF_RESCHEDULE;
         }
