@@ -23,7 +23,7 @@ class dev_setup:
     def _handle_on_ready(self):
         if self.fakeHome:
             logging.info("Fake home enabled, running FAKE_HOME script.")
-            self.gcode.run_script("SET_KINEMATIC_POSITION X=0 Y=0 Z=199")
+            self.gcode.run_script("SET_KINEMATIC_POSITION X=0 Y=0 Z=40")
 
   
 

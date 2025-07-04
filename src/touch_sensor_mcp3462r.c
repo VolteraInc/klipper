@@ -23,13 +23,57 @@ Owner: Mo
 
 #define ADC_ACTIVE_STATE 0
 
+#define CYCLE_TICKS 500000 
+
 // Global pointer to the ADC instance
 static struct mcp3462r_adc *mcp_adc_ptr = NULL;
+static struct RollingAverage rollingAvg_hndler;
 
 // -----------------------------------------------------------------------------
 // Utility Functions
 // -----------------------------------------------------------------------------
+void rolling_avg_init(struct RollingAverage *ra, int size, uint_fast8_t (*periodic_func)(struct timer *), 
+                      uint32_t rest_ticks) {
+    ra->size = size;
+    ra->index = 0;
+    ra->count = 0;
+    ra->sum = 0;
+    ra->lst_avg_value = 0.0f;
+    ra->timer.func = periodic_func; 
+    ra->rest_ticks = rest_ticks;
+    for (int i = 0; i < BUFFER_SIZE; i++) {
+        ra->buffer[i] = 0.0f; // Initialize the buffer to zero
+    }
+}
 
+float rolling_avg_push(struct RollingAverage *ra, float value) {
+    if (ra->count < ra->size) {
+        ra->count++;
+    } else {
+        ra->sum -= ra->buffer[ra->index];  
+    }
+
+    ra->buffer[ra->index] = value;
+    ra->sum += value;
+
+    ra->index = (ra->index + 1) % ra->size;
+    ra->lst_avg_value = ra->sum / ra->count;
+    return ra->lst_avg_value;
+}
+
+float rolling_avg_get_last(struct RollingAverage *ra) {
+    return ra->lst_avg_value;
+}
+
+void rolling_avg_reset(struct RollingAverage *ra) {
+    ra->size = 0;
+    ra->index = 0;
+    ra->count = 0;
+    ra->sum = 0;
+    ra->lst_avg_value = 0.0f;
+    for (int i = 0; i < BUFFER_SIZE; i++) 
+        ra->buffer[i] = 0.0f;
+}
 // Check if ADC data is ready
 int8_t mcp3462r_is_data_ready(struct mcp3462r_adc *mcp3462r) {
     return gpio_in_read(mcp3462r->adc_ready_pin) == ADC_ACTIVE_STATE;
@@ -53,7 +97,7 @@ static uint_fast8_t mcp3462r_terminator_event(struct timer *t) {
 // Main event: handles ADC data polling and session logic
 static uint_fast8_t mcp3462r_event(struct timer *t) {
     uint16_t doneP = 0, data = 0;
-
+    uint16_t rolling_avg_value = 0;
     // output("Touch sensor ADC event triggered at cycle= %u", mcp_adc_ptr->timeout_cycles);
 
     if (mcp3462r_is_data_ready(mcp_adc_ptr)) {
@@ -65,10 +109,13 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
 
         data = (mcp_adc_ptr->msg[1] << 8) | mcp_adc_ptr->msg[2];
         // Process the raw values
-        output("Got new raw ADC data: %u at cycle= %u",
-                data, mcp_adc_ptr->timeout_cycles);
-        if (data < mcp_adc_ptr->sensitivity) {
+        // output("Got new raw ADC data: %u at cycle= %u sensitivity is %u",
+        //         data, mcp_adc_ptr->timeout_cycles, mcp_adc_ptr->sensitivity);
+        rolling_avg_value = (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler));
+        if (rolling_avg_value - data > mcp_adc_ptr->sensitivity) {
             // Touch detected
+            output("Touch detected: raw data=%u, rolling avg=%u, sensitivity=%u",
+                   data, rolling_avg_value, mcp_adc_ptr->sensitivity);
             gpio_out_write(mcp_adc_ptr->trigger_out_pin, 1);
             mcp_adc_ptr->timeout_cycles = 1; // End session soon
             doneP = 1;
@@ -90,11 +137,35 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
 
         if (doneP) {
             // Schedule terminator event to reset probe state
+            mcp_adc_ptr->timer.waketime +=  5 * mcp_adc_ptr->rest_ticks;
             mcp_adc_ptr->timer.func = mcp3462r_terminator_event;
             return SF_RESCHEDULE;
         }
         sched_del_timer(&mcp_adc_ptr->timer);
         return SF_DONE;
+    }
+    return SF_RESCHEDULE;
+}
+
+static uint_fast8_t periodic_read_event(struct timer *t) {
+    uint16_t data = 0;
+    rollingAvg_hndler.timer.waketime = timer_read_time() + rollingAvg_hndler.rest_ticks;
+    if (mcp_adc_ptr->active_session_flag || !mcp_adc_ptr->configured_flag) {
+        output("Touch sensor ADC HW is not configured or session is active");
+        return SF_RESCHEDULE;
+    }
+    if (mcp3462r_is_data_ready(mcp_adc_ptr)) {
+        // Read ADC data
+        mcp_adc_ptr->msg[0] = READ_CMD;
+        mcp_adc_ptr->msg[1] = 0x00;
+        mcp_adc_ptr->msg[2] = 0x00;
+        spidev_transfer(mcp_adc_ptr->spi, 1, 3, mcp_adc_ptr->msg);
+
+        data = (mcp_adc_ptr->msg[1] << 8) | mcp_adc_ptr->msg[2];
+        rolling_avg_push(&rollingAvg_hndler, (float)data);
+        output("Periodic read: Got new raw ADC data: %u, rolling avg is: %u", data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
+    } else {
+        output("Periodic read: No data ready from ADC");
     }
     return SF_RESCHEDULE;
 }
@@ -120,6 +191,18 @@ void command_cfg_ts_adc(uint32_t *args) {
 
     output("Touch sensor ADC configured with OID=%c, SPI OID=%c, ADC ready pin=%u, Trigger out pin=%u PI_EN pin=%u",
            mcp_adc_ptr->oid, args[1], args[2], args[3], args[4]);
+    
+    
+    rolling_avg_init(&rollingAvg_hndler, BUFFER_SIZE, periodic_read_event, 
+                     CYCLE_TICKS);
+
+    irq_disable();
+    rollingAvg_hndler.timer.waketime = timer_read_time() + rollingAvg_hndler.rest_ticks;
+    sched_add_timer(&rollingAvg_hndler.timer);
+    irq_enable();
+
+    output("Rolling average handler initialized with");
+
 }
 
 DECL_COMMAND(command_cfg_ts_adc,
