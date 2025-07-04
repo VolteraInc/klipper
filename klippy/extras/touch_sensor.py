@@ -36,7 +36,8 @@ class Touch_sensor_MCP3462R:
         self.spi_oid = self.spi.get_oid()
         self.mcu = self.spi.get_mcu()
         self.oid = self.mcu.create_oid()
-        self.trigger_value = config.getfloat('trigger_value')
+        self.trigger_sens = config.getfloat('trigger_sens')
+        self.continous_read_cycle_us = config.getint('continous_read_cycle_us', 50000)
 
         # Printer and pin setup
         self.printer = config.get_printer()
@@ -48,8 +49,8 @@ class Touch_sensor_MCP3462R:
 
         # Register MCU configuration
         self.mcu.add_config_cmd(
-            "cfg_ts_adc oid=%d spi_oid=%d adc_int_pin=%s trigger_out_pin=%s PI_EN_pin=%s" %
-            (self.oid, self.spi_oid, self.adc_int_pin['pin'], self.probe_interrupt_pin['pin'], self.PI_EN_pin['pin'])
+            "cfg_ts_adc oid=%d spi_oid=%d adc_int_pin=%s trigger_out_pin=%s PI_EN_pin=%s cycle_us=%u" %
+            (self.oid, self.spi_oid, self.adc_int_pin['pin'], self.probe_interrupt_pin['pin'], self.PI_EN_pin['pin'], self.continous_read_cycle_us)
         )
         self.mcu.register_config_callback(self._build_config)
 
@@ -105,7 +106,7 @@ class Touch_sensor_MCP3462R:
         logging.info("Touch sensor SPI OID: %s", self.spi_oid)
         logging.info("Touch sensor configured: %s", self.configured)
         self.start_ts_session_cmd.send([
-            self.oid, 80000, 500000, int(self.trigger_value)
+            self.oid, 80000, 500000, int(self.trigger_sens)
         ])
 
     def _handle_ts_session_response(self, params):

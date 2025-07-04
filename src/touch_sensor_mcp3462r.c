@@ -23,8 +23,6 @@ Owner: Mo
 
 #define ADC_ACTIVE_STATE 0
 
-#define CYCLE_TICKS 500000 
-
 // Global pointer to the ADC instance
 static struct mcp3462r_adc *mcp_adc_ptr = NULL;
 static struct RollingAverage rollingAvg_hndler;
@@ -189,12 +187,12 @@ void command_cfg_ts_adc(uint32_t *args) {
     mcp_adc_ptr->msg[1] = 0x00;
     gpio_out_write(mcp_adc_ptr->trigger_out_pin, 0);
 
-    output("Touch sensor ADC configured with OID=%c, SPI OID=%c, ADC ready pin=%u, Trigger out pin=%u PI_EN pin=%u",
-           mcp_adc_ptr->oid, args[1], args[2], args[3], args[4]);
+    output("Touch sensor ADC configured with OID=%c, SPI OID=%c, ADC ready pin=%u, Trigger out pin=%u PI_EN pin=%u cycle_us=%u",
+           mcp_adc_ptr->oid, args[1], args[2], args[3], args[4], args[5]);
     
     
     rolling_avg_init(&rollingAvg_hndler, BUFFER_SIZE, periodic_read_event, 
-                     CYCLE_TICKS);
+                     timer_from_us(args[5]));
 
     irq_disable();
     rollingAvg_hndler.timer.waketime = timer_read_time() + rollingAvg_hndler.rest_ticks;
@@ -206,7 +204,7 @@ void command_cfg_ts_adc(uint32_t *args) {
 }
 
 DECL_COMMAND(command_cfg_ts_adc,
-             "cfg_ts_adc oid=%c spi_oid=%c adc_int_pin=%u trigger_out_pin=%u PI_EN_pin=%u");
+             "cfg_ts_adc oid=%c spi_oid=%c adc_int_pin=%u trigger_out_pin=%u PI_EN_pin=%u cycle_us=%u");
 
 // Start a new touch sensing session
 void command_start_touch_sensing_session(uint32_t *args) {
