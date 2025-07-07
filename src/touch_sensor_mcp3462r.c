@@ -86,9 +86,7 @@ static uint_fast8_t mcp3462r_terminator_event(struct timer *t) {
     gpio_out_write(mcp_adc_ptr->trigger_out_pin, 0);
     sched_del_timer(&mcp_adc_ptr->timer);
     mcp_adc_ptr->active_session_flag = 0; // Ensure session flag is cleared
-    output("Touch sensor ADC terminator event triggered at cycle= %u", mcp_adc_ptr->timeout_cycles);
-    output("Touch sensor ADC session terminated at cycle= %u, session flag is= %u",
-           mcp_adc_ptr->timeout_cycles, mcp_adc_ptr->active_session_flag);
+    output("Terminator event triggered at cycle= %u session flag is= %u", mcp_adc_ptr->timeout_cycles, mcp_adc_ptr->active_session_flag);
     return SF_DONE;
 }
 
@@ -147,6 +145,10 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
 
 static uint_fast8_t periodic_read_event(struct timer *t) {
     uint16_t data = 0;
+
+    static uint32_t last_output_time = 0;
+    uint32_t current_time = timer_read_time();
+
     rollingAvg_hndler.timer.waketime = timer_read_time() + rollingAvg_hndler.rest_ticks;
     if (mcp_adc_ptr->active_session_flag || !mcp_adc_ptr->configured_flag) {
         output("Touch sensor ADC HW is not configured or session is active");
@@ -161,9 +163,13 @@ static uint_fast8_t periodic_read_event(struct timer *t) {
 
         data = (mcp_adc_ptr->msg[1] << 8) | mcp_adc_ptr->msg[2];
         rolling_avg_push(&rollingAvg_hndler, (float)data);
-        output("Periodic read: Got new raw ADC data: %u, rolling avg is: %u", data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
+
+        if (current_time - last_output_time > timer_from_us(100000)) {
+        output("Periodic read: raw ADC data: %u, rolling avg is: %u", data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
+            last_output_time = current_time;
+        }
     } else {
-        output("Periodic read: No data ready from ADC");
+        output("Periodic read: ADC not ready");
     }
     return SF_RESCHEDULE;
 }
@@ -198,9 +204,6 @@ void command_cfg_ts_adc(uint32_t *args) {
     rollingAvg_hndler.timer.waketime = timer_read_time() + rollingAvg_hndler.rest_ticks;
     sched_add_timer(&rollingAvg_hndler.timer);
     irq_enable();
-
-    output("Rolling average handler initialized with");
-
 }
 
 DECL_COMMAND(command_cfg_ts_adc,
