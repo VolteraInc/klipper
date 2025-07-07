@@ -1,10 +1,10 @@
 #define READ_CMD 0b01000011 // Read command for MCP3462R
-#define BUFFER_SIZE 1000
+#define BUFFER_SIZE 100
 
 static uint_fast8_t periodic_read_event(struct timer *t);
 
 struct mcp3462r_adc {
-    uint8_t oid; // Object ID for this ADC instance
+    uint8_t oid;
     struct spidev_s *spi;
     struct gpio_in adc_ready_pin;
     struct gpio_out trigger_out_pin;

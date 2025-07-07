@@ -40,7 +40,7 @@ void rolling_avg_init(struct RollingAverage *ra, int size, uint_fast8_t (*period
     ra->timer.func = periodic_func; 
     ra->rest_ticks = rest_ticks;
     for (int i = 0; i < BUFFER_SIZE; i++) {
-        ra->buffer[i] = 0.0f; // Initialize the buffer to zero
+        ra->buffer[i] = 0.0f;
     }
     ra->running_flag = 0;
 }
@@ -103,7 +103,7 @@ static uint_fast8_t mcp3462r_terminator_event(struct timer *t) {
     gpio_out_write(mcp_adc_ptr->trigger_out_pin, 0);
     sched_del_timer(&mcp_adc_ptr->timer);
     mcp_adc_ptr->active_session_flag = 0; // Ensure session flag is cleared
-    output("Terminator event triggered at cycle= %u session flag is= %u", mcp_adc_ptr->timeout_cycles, mcp_adc_ptr->active_session_flag);
+    output("Terminator event triggered session flag is= %u", mcp_adc_ptr->active_session_flag);
     return SF_DONE;
 }
 
@@ -125,10 +125,12 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
         // output("Got new raw ADC data: %u at cycle= %u sensitivity is %u",
         //         data, mcp_adc_ptr->timeout_cycles, mcp_adc_ptr->sensitivity);
         rolling_avg_value = (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler));
+        sendf("Probing_read oid=%c raw=%u avg=%u", mcp_adc_ptr->oid,
+            data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
         if (rolling_avg_value - data > mcp_adc_ptr->sensitivity) {
             // Touch detected
-            output("Touch detected: raw data=%u, rolling avg=%u, sensitivity=%u",
-                   data, rolling_avg_value, mcp_adc_ptr->sensitivity);
+            output("Touch detected: raw data=%u, rolling avg=%u, sensitivity=%u, cycle=%u",
+                   data, rolling_avg_value, mcp_adc_ptr->sensitivity, mcp_adc_ptr->timeout_cycles);
             gpio_out_write(mcp_adc_ptr->trigger_out_pin, 1);
             mcp_adc_ptr->timeout_cycles = 1; // End session soon
             doneP = 1;
@@ -142,10 +144,8 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
 
     if (--mcp_adc_ptr->timeout_cycles == 0) {
         // Timeout reached, stop the task
-        mcp_adc_ptr->active_session_flag = 0;
         sendf("Ts_session_result oid=%c status=%u lstValue=%u",
               mcp_adc_ptr->oid, doneP, data);
-        output("Ts_session_result status=%u lstValue=%u", doneP, data);
         gpio_out_write(mcp_adc_ptr->PI_EN_pin, 0);
 
         if (doneP) {
@@ -154,6 +154,7 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
             mcp_adc_ptr->timer.func = mcp3462r_terminator_event;
             return SF_RESCHEDULE;
         }
+        mcp_adc_ptr->active_session_flag = 0;
         sched_del_timer(&mcp_adc_ptr->timer);
         return SF_DONE;
     }
@@ -181,7 +182,8 @@ static uint_fast8_t periodic_read_event(struct timer *t) {
 
         data = (mcp_adc_ptr->msg[1] << 8) | mcp_adc_ptr->msg[2];
         rolling_avg_push(&rollingAvg_hndler, (float)data);
-
+        sendf("Periodic_read oid=%c raw=%u avg=%u", mcp_adc_ptr->oid
+              ,data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
         output("Periodic read: raw ADC data: %u, rolling avg is: %u", data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
         // if (current_time - last_output_time > timer_from_us(1)) {
         //     last_output_time = current_time;
@@ -227,7 +229,7 @@ DECL_COMMAND(command_cfg_ts_adc,
 // Start a new touch sensing session
 void command_start_touch_sensing_session(uint32_t *args) {
     if (mcp_adc_ptr == NULL || !mcp_adc_ptr->configured_flag) {
-        shutdown("Touch sensor ADC HW is not configured");
+        shutdown("Touch sensor ADC HW is not configured or the session is already active");
     }
     if (mcp_adc_ptr->oid != args[0]) {
         shutdown("Touch sensor ADC OID does not match the configured OID");

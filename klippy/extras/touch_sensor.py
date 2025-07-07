@@ -21,15 +21,14 @@ CONFIG3_DATA     = bytes([0b11000000])
 IRQ_DATA         = bytes([0b00000110])
 FULL_RST         = bytes([0b01111000])
 ADCDATA_READ     = bytes([0b01000011])
-MUX_FORCE_DATA   = bytes([0b00000001])  
-DUMP_BYTE   = bytes([0b00000000])  
+MUX_FORCE_DATA   = bytes([0b00000001])
+DUMP_BYTE   = bytes([0b00000000])
 
 # -------------------------------------------------------------------------
 # Touch Sensor Class
 # -------------------------------------------------------------------------
-class Touch_sensor_MCP3462R:
+class touch_sensor:
     """Klipper interface for MCP3462R SPI-based touch sensor."""
-
     def __init__(self, config):
         # SPI and MCU setup
         self.spi = bus.MCU_SPI_from_config(config, 0, pin_option="cs_pin")
@@ -68,11 +67,22 @@ class Touch_sensor_MCP3462R:
 
         # Register event handlers
         self.printer.register_event_handler("klippy:ready", self._handle_on_ready)
+        # self.gcode.register_command('START_TS_SESSION', self._handle_probing_event,
+        #     desc="Start a touch sensor session for probing")
+
+        self.raw_adc = 0
+        self.avg_adc = 0
         self.printer.register_event_handler("probe:PROBE", self._handle_probing_event)
 
     # ---------------------------------------------------------------------
     # MCU/Session Configuration
     # ---------------------------------------------------------------------
+    def get_status(self, eventtime):
+        """Return the status of the touch sensor."""
+        return {
+            'raw_adc': self.raw_adc,
+            'avg_adc': self.avg_adc
+        }
     def _build_config(self):
         self.start_ts_session_cmd = self.mcu.lookup_command(
             "start_ts_session oid=%c timeout_cycles=%u rest_ticks=%u sensitivity=%u"
@@ -81,6 +91,8 @@ class Touch_sensor_MCP3462R:
             "resume_rolling_avg oid=%c"
         )
         self.mcu.register_response(self._handle_ts_session_response, "Ts_session_result", self.oid)
+        self.mcu.register_response(self._handle_readings_rsponse, "Periodic_read", self.oid)
+        self.mcu.register_response(self._handle_readings_rsponse, "Probing_read", self.oid)
 
     def _do_initialization_commands(self):
         """Send initialization commands to the touch sensor."""
@@ -105,13 +117,13 @@ class Touch_sensor_MCP3462R:
         """Handle probing event and start touch sensor session."""
         if not self.configured:
             raise gcmd.error("Touch sensor is not configured. Please initialize it first.")
-        self._pending_gcmd = gcmd  # Store for later response
+        self._pending_gcmd = gcmd
         logging.info("Probing event detected, starting touch sensor session.")
         logging.info("Touch sensor OID: %s", self.oid)
         logging.info("Touch sensor SPI OID: %s", self.spi_oid)
         logging.info("Touch sensor configured: %s", self.configured)
         self.start_ts_session_cmd.send([
-            self.oid, 80000, 500000, int(self.trigger_sens)
+            self.oid, 80000, 5000, int(self.trigger_sens)
         ])
 
     def _handle_ts_session_response(self, params):
@@ -132,6 +144,13 @@ class Touch_sensor_MCP3462R:
                 logging.info("Touched with value: %d", data)
             elif status == 0:
                 logging.warning("Touch sensor session timed out without sensing.")
+    def _handle_readings_rsponse(self, params):
+        """Handle the readings response from the touch sensor."""
+        if params['oid'] != self.oid:
+            logging.warning("Received readings response for unknown OID: %s", params['oid'])
+            return
+        self.raw_adc = params['raw']
+        self.avg_adc = params['avg']
 
     # ---------------------------------------------------------------------
     # GCode Command Handlers
@@ -154,20 +173,7 @@ class Touch_sensor_MCP3462R:
         """Get the touch sensor data."""
         if not self.configured:
             raise gcmd.error("Touch sensor not configured. Please initialize it first.")
-        # Dummy delay to allow sensor to finish sampling. Just for calibration purposes.
-        # TODO: Hangle theis using Klipper's sleep command or similar.
-        x= 10000
-        while x:
-            x-=1
-        resp = self.spi.spi_transfer(ADCDATA_READ+DUMP_BYTE+ DUMP_BYTE)
-        data = resp['response']
-
-        if not isinstance(data, (bytes, bytearray)) or len(data) != 3:
-            raise gcmd.error("Invalid SPI response: expected 2 bytes, got %s" % repr(data))
-
-        value = (data[1] << 8) | data[2]
-        hex_v = data.hex()
-        gcmd.respond_info("Touch sensor value: %d" % (value))
+        gcmd.respond_info("Touch sensor raw %d, avg %d" % (self.raw_adc, self.avg_adc))
 
     def cmd_RESUME_ROLLING_AVG(self, gcmd):
         """Resume the rolling average for the touch sensor."""
@@ -181,4 +187,4 @@ class Touch_sensor_MCP3462R:
 # Module Load Function
 # -------------------------------------------------------------------------
 def load_config(config):
-    return Touch_sensor_MCP3462R(config)
+    return touch_sensor(config)
