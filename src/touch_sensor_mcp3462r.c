@@ -125,8 +125,8 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
         // output("Got new raw ADC data: %u at cycle= %u sensitivity is %u",
         //         data, mcp_adc_ptr->timeout_cycles, mcp_adc_ptr->sensitivity);
         rolling_avg_value = (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler));
-        sendf("Probing_read oid=%c raw=%u avg=%u", mcp_adc_ptr->oid,
-            data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
+        // sendf("Probing_read oid=%c raw=%u avg=%u", mcp_adc_ptr->oid,
+        //     data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
         if (rolling_avg_value - data > mcp_adc_ptr->sensitivity) {
             // Touch detected
             output("Touch detected: raw data=%u, rolling avg=%u, sensitivity=%u, cycle=%u",
@@ -134,10 +134,11 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
             gpio_out_write(mcp_adc_ptr->trigger_out_pin, 1);
             mcp_adc_ptr->timeout_cycles = 1; // End session soon
             doneP = 1;
-        } else {
-            // No touch detected, reset output pin
-            gpio_out_write(mcp_adc_ptr->trigger_out_pin, 0);
-        }
+        } 
+        // else {
+        //     // No touch detected, reset output pin
+        //     gpio_out_write(mcp_adc_ptr->trigger_out_pin, 0);
+        // }
     }
 
     mcp_adc_ptr->timer.waketime += mcp_adc_ptr->rest_ticks;
@@ -150,7 +151,8 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
 
         if (doneP) {
             // Schedule terminator event to reset probe state
-            mcp_adc_ptr->timer.waketime +=  5 * mcp_adc_ptr->rest_ticks;
+            // mcp_adc_ptr->timer.waketime +=  5 * mcp_adc_ptr->rest_ticks;
+            mcp_adc_ptr->timer.waketime +=  500000;
             mcp_adc_ptr->timer.func = mcp3462r_terminator_event;
             return SF_RESCHEDULE;
         }
@@ -182,9 +184,9 @@ static uint_fast8_t periodic_read_event(struct timer *t) {
 
         data = (mcp_adc_ptr->msg[1] << 8) | mcp_adc_ptr->msg[2];
         rolling_avg_push(&rollingAvg_hndler, (float)data);
-        sendf("Periodic_read oid=%c raw=%u avg=%u", mcp_adc_ptr->oid
-              ,data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
-        output("Periodic read: raw ADC data: %u, rolling avg is: %u", data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
+        // sendf("Periodic_read oid=%c raw=%u avg=%u", mcp_adc_ptr->oid
+        //       ,data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
+        // output("Periodic read: raw ADC data: %u, rolling avg is: %u", data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
         // if (current_time - last_output_time > timer_from_us(1)) {
         //     last_output_time = current_time;
         // }
