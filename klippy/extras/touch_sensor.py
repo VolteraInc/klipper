@@ -61,6 +61,8 @@ class Touch_sensor_MCP3462R:
             desc="Reset the touch sensor")
         self.gcode.register_command('GET_TS_VAL', self.cmd_GET_TS_VALUE,
             desc="Klippy read for touch sensor value")
+        self.gcode.register_command('RESUME_ROLLING_AVG', self.cmd_RESUME_ROLLING_AVG,
+            desc="Resume the rolling average for the touch sensor")
 
         self.configured = False
 
@@ -74,6 +76,9 @@ class Touch_sensor_MCP3462R:
     def _build_config(self):
         self.start_ts_session_cmd = self.mcu.lookup_command(
             "start_ts_session oid=%c timeout_cycles=%u rest_ticks=%u sensitivity=%u"
+        )
+        self.resume_rolling_avg_cmd = self.mcu.lookup_command(
+            "resume_rolling_avg oid=%c"
         )
         self.mcu.register_response(self._handle_ts_session_response, "Ts_session_result", self.oid)
 
@@ -163,6 +168,14 @@ class Touch_sensor_MCP3462R:
         value = (data[1] << 8) | data[2]
         hex_v = data.hex()
         gcmd.respond_info("Touch sensor value: %d" % (value))
+
+    def cmd_RESUME_ROLLING_AVG(self, gcmd):
+        """Resume the rolling average for the touch sensor."""
+        if not self.configured:
+            raise gcmd.error("Touch sensor not configured. Please initialize it first.")
+
+        self.resume_rolling_avg_cmd.send([self.oid])
+        gcmd.respond_info("Rolling average resumed for OID=%d" % self.oid)
 
 # -------------------------------------------------------------------------
 # Module Load Function

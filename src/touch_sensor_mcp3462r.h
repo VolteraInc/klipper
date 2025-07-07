@@ -1,5 +1,8 @@
 #define READ_CMD 0b01000011 // Read command for MCP3462R
-#define BUFFER_SIZE 25
+#define BUFFER_SIZE 1000
+
+static uint_fast8_t periodic_read_event(struct timer *t);
+
 struct mcp3462r_adc {
     uint8_t oid; // Object ID for this ADC instance
     struct spidev_s *spi;
@@ -22,5 +25,6 @@ struct RollingAverage {
     float lst_avg_value;
     struct timer timer;
     uint32_t rest_ticks;
+    char running_flag;
 };
 
