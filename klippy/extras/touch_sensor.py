@@ -123,7 +123,7 @@ class touch_sensor:
         logging.info("Touch sensor SPI OID: %s", self.spi_oid)
         logging.info("Touch sensor configured: %s", self.configured)
         self.start_ts_session_cmd.send([
-            self.oid, 80000, 5000, int(self.trigger_sens)
+            self.oid, 80000, 10000, int(self.trigger_sens)
         ])
 
     def _handle_ts_session_response(self, params):
