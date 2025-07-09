@@ -56,7 +56,7 @@ class XGZP6847D_sensor:
         self.i2c = bus.MCU_I2C_from_config(config, default_speed=100000, default_addr=XGZP6847D_FACTORY_ADDRESS)
 
         self.active_read = False
-        STATUS_UPDATE_MS = config.getfloat('status_update_ms', STATUS_UPDATE_MS)
+        STATUS_UPDATE_MS = config.getfloat('status_update_ms')
 
         self.pressure,  self.temperature, self.read_cycle = 0, 0, 0
         self.timer = None
