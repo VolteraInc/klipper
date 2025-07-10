@@ -20,6 +20,8 @@ Owner: Mo
 #include "sched.h"
 #include "spicmds.h"
 #include "touch_sensor_mcp3462r.h"
+#include "debug_utilities.h"
+// -----------------------------------------------------------------------------
 
 #define ADC_ACTIVE_STATE 0
 
@@ -114,7 +116,7 @@ static uint_fast8_t mcp3462r_terminator_event(struct timer *t) {
     gpio_out_write(mcp_adc_ptr->trigger_out_pin, 0);
     sched_del_timer(&mcp_adc_ptr->timer);
     mcp_adc_ptr->active_session_flag = 0; // Ensure session flag is cleared
-    output("Terminator event triggered session flag is= %u", mcp_adc_ptr->active_session_flag);
+    DBG_INFO("Terminator event triggered session flag is= %u", mcp_adc_ptr->active_session_flag);
     return SF_DONE;
 }
 
@@ -122,7 +124,7 @@ static uint_fast8_t mcp3462r_terminator_event(struct timer *t) {
 static uint_fast8_t mcp3462r_event(struct timer *t) {
     uint16_t doneP = 0, data = 0;
     uint16_t rolling_avg_value = 0, probe_avg_value = 0;
-    // output("Touch sensor ADC event triggered at cycle= %u", mcp_adc_ptr->timeout_cycles);
+    DBG_VERB("Touch sensor ADC event triggered at cycle= %u", mcp_adc_ptr->timeout_cycles);
 
     if (mcp3462r_is_data_ready(mcp_adc_ptr)) {
         // Read ADC data
@@ -138,7 +140,7 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
         // Process the raw values
         rolling_avg_value = (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler));
         probe_avg_value = (uint16_t)(rolling_avg_get_last(&probe_avg_hndler));
-        output("Probe raw: %u, avg: %u BL: %u at cycle= %u sens is %u",
+        DBG_VERB("Probe: raw= %u, avg= %u BaseL= %u at cycle= %u sens= %u",
                data, probe_avg_value, rolling_avg_value, mcp_adc_ptr->timeout_cycles, mcp_adc_ptr->sensitivity);
 
         // sendf("Probing_read oid=%c raw=%u avg=%u", mcp_adc_ptr->oid,
@@ -146,7 +148,7 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
         if (rolling_avg_value > probe_avg_value && 
             (rolling_avg_value - probe_avg_value) > mcp_adc_ptr->sensitivity) {
             // Touch detected
-            output("Touch detected: raw data=%u, prove_avg=%u, rolling avg=%u, sensitivity=%u, cycle=%u",
+            DBG_INFO("Touch detected: raw data=%u, prove_avg=%u, rolling avg=%u, sensitivity=%u, cycle=%u",
                    data, probe_avg_value, rolling_avg_value, mcp_adc_ptr->sensitivity, mcp_adc_ptr->timeout_cycles);
             gpio_out_write(mcp_adc_ptr->trigger_out_pin, 1);
             mcp_adc_ptr->timeout_cycles = 1; // End session soon
@@ -154,7 +156,7 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
         } 
     }
     else {
-        output("ADC not ready at cycle=%u", mcp_adc_ptr->timeout_cycles);
+        DBG_INFO("ADC not ready at cycle=%u", mcp_adc_ptr->timeout_cycles);
     }
 
     mcp_adc_ptr->timer.waketime += mcp_adc_ptr->rest_ticks;
@@ -163,13 +165,12 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
         // Timeout reached, stop the task
         sendf("Ts_session_result oid=%c status=%u lstValue=%u",
               mcp_adc_ptr->oid, doneP, probe_avg_value);
-        output("Touch sensing session completed for OID=%c, status=%u, last value=%u",
+        DBG_INFO("Touch sensing session completed for OID=%c, status=%u, last value=%u",
                mcp_adc_ptr->oid, doneP, probe_avg_value);
         gpio_out_write(mcp_adc_ptr->PI_EN_pin, 0);
 
         if (doneP) {
             // Schedule terminator event to reset probe state
-            // mcp_adc_ptr->timer.waketime +=  5 * mcp_adc_ptr->rest_ticks;
             mcp_adc_ptr->timer.waketime +=  500000;
             mcp_adc_ptr->timer.func = mcp3462r_terminator_event;
             return SF_RESCHEDULE;
@@ -189,7 +190,7 @@ static uint_fast8_t periodic_read_event(struct timer *t) {
 
     rollingAvg_hndler.timer.waketime = timer_read_time() + rollingAvg_hndler.rest_ticks;
     if (mcp_adc_ptr->active_session_flag || !mcp_adc_ptr->configured_flag) {
-        output("Touch sensor ADC HW is not configured or session is active, pausing periodic read");
+        DBG_WARN("Touch sensor ADC HW is not configured or session is active, pausing periodic read");
         rolling_avg_pause(&rollingAvg_hndler);
         return SF_DONE;
     }
@@ -204,13 +205,13 @@ static uint_fast8_t periodic_read_event(struct timer *t) {
         rolling_avg_push(&rollingAvg_hndler, (float)data);
         // sendf("Periodic_read oid=%c raw=%u avg=%u", mcp_adc_ptr->oid
         //       ,data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
-        output("Periodic read: raw ADC data: %u, rolling avg is: %u", data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
-        // if (current_time - last_output_time > timer_from_us(1)) {
-        //     last_output_time = current_time;
-        // }
+        if (current_time - last_output_time > timer_from_us(1)) {
+                last_output_time = current_time;
+            DBG_VERB("Periodic: raw ADC data: %u, rolling avg is: %u", data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
+        }
     } 
     else {
-        output("Periodic read: ADC not ready");
+        DBG_WARN("Periodic read: ADC not ready");
     }
     return SF_RESCHEDULE;
 }
@@ -234,7 +235,7 @@ void command_cfg_ts_adc(uint32_t *args) {
     mcp_adc_ptr->msg[1] = 0x00;
     gpio_out_write(mcp_adc_ptr->trigger_out_pin, 0);
 
-    output("Touch sensor ADC configured with OID=%c, SPI OID=%c, ADC ready pin=%u, Trigger out pin=%u PI_EN pin=%u cycle_us=%u",
+    DBG_INFO("Touch sensor ADC configured with OID=%c, SPI OID=%c, ADC ready pin=%u, Trigger out pin=%u PI_EN pin=%u cycle_us=%u",
            mcp_adc_ptr->oid, args[1], args[2], args[3], args[4], args[5]);
     
     
@@ -261,7 +262,7 @@ void command_start_touch_sensing_session(uint32_t *args) {
     mcp_adc_ptr->sensitivity = args[3];
     gpio_out_write(mcp_adc_ptr->PI_EN_pin, 1);
 
-    output("Starting touch sensing session with OID=%c, timeout_cycles=%u, rest_ticks=%u, sensitivity=%u",
+    DBG_INFO("Starting touch sensing session with OID=%c, timeout_cycles=%u, rest_ticks=%u, sensitivity=%u",
            mcp_adc_ptr->oid, mcp_adc_ptr->timeout_cycles, mcp_adc_ptr->rest_ticks, mcp_adc_ptr->sensitivity);
     // TODO: Make the errors less aggressive
     if (!mcp_adc_ptr->timeout_cycles || !mcp_adc_ptr->rest_ticks) {
@@ -297,10 +298,10 @@ void command_resume_rolling_avg(uint32_t *args) {
         shutdown("Touch sensor ADC HW is not configured");
     }
     if (rollingAvg_hndler.running_flag) {
-        output("Rolling average is already running for OID=%c", mcp_adc_ptr->oid);
+        DBG_ERR("Rolling average is already running for OID=%c", mcp_adc_ptr->oid);
         return;
     }
-    output("Resuming rolling average for OID=%c", mcp_adc_ptr->oid);
+    DBG_INFO("Resuming rolling average for OID=%c", mcp_adc_ptr->oid);
     rolling_avg_resume(&rollingAvg_hndler);
 }
 DECL_COMMAND(command_resume_rolling_avg,
