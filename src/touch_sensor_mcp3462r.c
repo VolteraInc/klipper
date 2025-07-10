@@ -156,7 +156,7 @@ static uint_fast8_t mcp3462r_event(struct timer *t) {
         } 
     }
     else {
-        DBG_INFO("ADC not ready at cycle=%u", mcp_adc_ptr->timeout_cycles);
+        DEBUG_VERBOSE("ADC not ready at cycle=%u", mcp_adc_ptr->timeout_cycles);
     }
 
     mcp_adc_ptr->timer.waketime += mcp_adc_ptr->rest_ticks;
@@ -207,11 +207,11 @@ static uint_fast8_t periodic_read_event(struct timer *t) {
         //       ,data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
         if (current_time - last_output_time > timer_from_us(1)) {
                 last_output_time = current_time;
-            DBG_VERB("Periodic: raw ADC data: %u, rolling avg is: %u", data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
+            DBG_VERB("Periodic: raw read= %u, rolling avg is= %u", data, (uint16_t)(rolling_avg_get_last(&rollingAvg_hndler)));
         }
     } 
     else {
-        DBG_WARN("Periodic read: ADC not ready");
+        DBG_VERB("Periodic: ADC not ready");
     }
     return SF_RESCHEDULE;
 }
